@@ -4,12 +4,12 @@ library('sf')
 
 rm(list=ls())
 
-setwd("C:/Users/timot/Documents/GFw_Data")
+setwd("C:/Users/timot/Documents/Albacore_OLE")
 
 ###Input is GFW global data aggregated at either 1.0 or 0.25 resolution
 ### START here if you want a smaller subset...
 
-Fishing_Data<-read.csv("2012_fishingeffortflag_1.0.csv")
+Fishing_Data<-read.csv("~/GFW_Data/2012_fishingeffortflag_1.0.csv")
 Fishing_Data<-Fishing_Data[which(Fishing_Data$geartype == 'drifting_longlines'),]
 Fishing_Data<-Fishing_Data[which(Fishing_Data$month == 6),]
 myvars <- c("date", "year", "month", "lon_bin", "lat_bin", "flag", "geartype", "vessel_hours", "fishing_hours", "mmsi_present")
@@ -17,12 +17,14 @@ Fishing_Data<-Fishing_Data[myvars]
 
 ###START here if you want complete data...
 
-Fishing_Data<-read.csv("2012-2016_fishingeffortflag_1.0.csv")
+Fishing_Data<-read.csv("~/GFW_Data/2012-2016_fishingeffortflag_1.0.csv")
 myvars <- c("date", "year", "month", "lon_bin", "lat_bin", "flag", "geartype", "vessel_hours", "fishing_hours", "mmsi_present")
 Fishing_Data<-Fishing_Data[myvars]
 
-IATTC<-read_sf('C:/Users/timot/Documents/GFw_Data/shapefiles/RFMO_Boundaries/iattc.shp')
-WCPFC<-read_sf('C:/Users/timot/Documents/GFw_Data/shapefiles/RFMO_Boundaries/WCPFC.shp')
+getwd()
+
+IATTC<-read_sf("C:/Users/timot/Documents/Albacore_OLE/shapefiles/RFMO_Boundaries/iattc.shp")
+WCPFC<-read_sf('C:/Users/timot/Documents/Albacore_OLE/shapefiles/RFMO_Boundaries/WCPFC.shp')
 
 plot(WCPFC)
 plot(IATTC)
@@ -47,7 +49,7 @@ ggplot(Pacific_Spatial_Fishing_Data) + geom_sf()
 Pacific_Spatial_Fishing_Data<-st_shift_longitude(Pacific_Spatial_Fishing_Data) 
 ggplot(Pacific_Spatial_Fishing_Data) + geom_sf()
 
-write.csv(Pacific_Spatial_Fishing_Data, "X.csv")
+### write.csv(Pacific_Spatial_Fishing_Data, "X.csv")
 
 ###Aggregate By Grid Cell
 
@@ -70,7 +72,7 @@ effort_all <- Pacific_Fishing_df %>%
 effort_pal <- colorRampPalette(c('#0C276C', '#3B9088', '#EEFF00', '#ffffff'), 
                                interpolate = 'linear')
 
-Map<-read_sf('C:/Users/timot/Documents/GFw_Data/shapefiles/Pacific_Landmasses.shp')
+Map<-read_sf('C:/Users/timot/Documents/Albacore_OLE/shapefiles/Pacific_Landmasses.shp')
 Pacific_IATTC<-st_shift_longitude(IATTC)
 Pacific_WCPFC<-st_shift_longitude(WCPFC)
 Pacific_WCPFC$area <- st_area(Pacific_WCPFC)
@@ -103,7 +105,7 @@ p1
 library(raster)
 library(maptools)
 
-L<-shapefile('C:/Users/timot/Documents/GFw_Data/data/ne_110m_land.shp')
+L<-shapefile('C:/Users/timot/Documents/Albacore_OLE/shapefiles/ne_110m_land.shp')
 plot(L)
 worldSpPnrL <- nowrapRecenter(L)
 

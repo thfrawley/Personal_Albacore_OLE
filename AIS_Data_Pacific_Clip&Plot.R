@@ -7,21 +7,26 @@ rm(list=ls())
 setwd("C:/Users/timot/Documents/Albacore_OLE")
 
 ###Input is GFW global data aggregated at either 1.0 or 0.25 resolution
-### START here if you want a smaller subset...
+###START here if you want a smaller subset...
+###Data willl have to be split at 0.25 resolution because of memory (2012-2014, 2015, 2016)
 
 Fishing_Data<-read.csv("~/GFW_Data/2012_fishingeffortflag_1.0.csv")
 Fishing_Data<-Fishing_Data[which(Fishing_Data$geartype == 'drifting_longlines'),]
-Fishing_Data<-Fishing_Data[which(Fishing_Data$month == 6),]
+Fishing_Data<-Fishing_Data[which(Fishing_Data$year == 2012),]
+Fishing_Data<-Fishing_Data[which(Fishing_Data$month == 6|Fishing_Data$month == 7),]
 myvars <- c("date", "year", "month", "lon_bin", "lat_bin", "flag", "geartype", "vessel_hours", "fishing_hours", "mmsi_present")
 Fishing_Data<-Fishing_Data[myvars]
 
 ###START here if you want complete data...
 
-Fishing_Data<-read.csv("~/GFW_Data/2012-2016_fishingeffortflag_1.0.csv")
+
+Fishing_Data<-read.csv("~/GFW_Data/2012-2016_fishingeffortflag_0.25.csv")
 myvars <- c("date", "year", "month", "lon_bin", "lat_bin", "flag", "geartype", "vessel_hours", "fishing_hours", "mmsi_present")
 Fishing_Data<-Fishing_Data[myvars]
-
-getwd()
+Unique_Year<-as.data.frame(unique(Fishing_Data$year))
+names(Unique_Year)<-c("Year")
+List_Year<-as.list(as.character(Unique_Year$Year))
+Complete_Clip<-NULL
 
 IATTC<-read_sf("C:/Users/timot/Documents/Albacore_OLE/shapefiles/RFMO_Boundaries/iattc.shp")
 WCPFC<-read_sf('C:/Users/timot/Documents/Albacore_OLE/shapefiles/RFMO_Boundaries/WCPFC.shp')
@@ -36,28 +41,25 @@ Combined_Convention_Bounds <- Convention_Areas %>% summarise(area = sum(area))
 ggplot(Convention_Areas) + geom_sf()
 ggplot(Combined_Convention_Bounds) + geom_sf()
 
+for (i in 1:length(List_Year)){
+  Year = List_Year[i]
+  Single_Year <- Fishing_Data[which(Fishing_Data$year == Year),]
+  All_Spatial_Fishing_Data <- st_as_sf(Single_Year, coords = c('lon_bin', 'lat_bin'), crs = "+init=epsg:4326")
+  Pacific_Spatial_Fishing_Data<-st_intersection(All_Spatial_Fishing_Data, Combined_Convention_Bounds)
+  Pacific_Spatial_Fishing_Data<-st_shift_longitude(Pacific_Spatial_Fishing_Data) 
+  Lon_Lat_Coords<-as.data.frame(st_coordinates(Pacific_Spatial_Fishing_Data))
+  names(Lon_Lat_Coords)<-c("Lon","Lat")
+  Pacific_Fishing_df<-as.data.frame(Pacific_Spatial_Fishing_Data)
+  Pacific_Fishing_df<-cbind(Pacific_Fishing_df, Lon_Lat_Coords)
+  Pacific_Fishing_df<- Pacific_Fishing_df[c(-9,-10)]
+  Complete_Clip<-rbind(Complete_Clip, Pacific_Fishing_df)
+  print(Sys.time())
+}
 
-All_Spatial_Fishing_Data <- st_as_sf(Fishing_Data, coords = c('lon_bin', 'lat_bin'), crs = "+init=epsg:4326")
-Pacific_Spatial_Fishing_Data<-st_intersection(All_Spatial_Fishing_Data, Combined_Convention_Bounds)
 
-ggplot(Pacific_Spatial_Fishing_Data) + geom_sf()
-
-###END and export data if all you want is the data to be clipped
-
-##### START if we want to recenter data on the Pacifc
-
-Pacific_Spatial_Fishing_Data<-st_shift_longitude(Pacific_Spatial_Fishing_Data) 
-ggplot(Pacific_Spatial_Fishing_Data) + geom_sf()
-
-### write.csv(Pacific_Spatial_Fishing_Data, "X.csv")
+write.csv(Complete_Clip, "Pacific_2012-2016_fishingeffortflag_1.0w.csv")
 
 ###Aggregate By Grid Cell
-
-Lon_Lat_Coords<-as.data.frame(st_coordinates(Pacific_Spatial_Fishing_Data))
-names(Lon_Lat_Coords)<-c("Lon","Lat")
-Pacific_Fishing_df<-as.data.frame(Pacific_Spatial_Fishing_Data)
-Pacific_Fishing_df<-cbind(Pacific_Fishing_df, Lon_Lat_Coords)
-Pacific_Fishing_df<- Pacific_Fishing_df[c(-9,-10)]
 
 effort_all <- Pacific_Fishing_df %>% 
   group_by(Lon,Lat) %>% 
@@ -115,7 +117,14 @@ Pacific_Landmasses<-as(subL, "SpatialPolygonsDataFrame")
 rgdal::writeOGR(obj=Pacific_Landmasses, layer="Pacific_Landmasses", dsn="tempdir", driver="ESRI Shapefile")
 
 
+###To Join files
 
+Test<-read.csv("X.csv")
 
+First<-read.csv("Pacific_2012-2014_fishingeffortflag_0.25.csv")
+Second<-read.csv("Pacific_2015_fishingeffortflag_0.25.csv")
+Third<-Second<-read.csv("Pacific_2016_fishingeffortflag_0.25.csv")
+
+Complete<-rbind(First,Seconf)
 
 

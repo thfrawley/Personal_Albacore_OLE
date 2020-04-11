@@ -6,45 +6,60 @@ rm(list=ls())
 
 setwd("C:/Users/timot/Documents/Albacore_OLE")
 
-###Input is GFW global data aggregated at either 1.0 or 0.25 resolution
-###START here if you want a smaller subset...
-###Data willl have to be split at 0.25 resolution because of memory (2012-2014, 2015, 2016)
+###Prepare shapefiles to use in clipping and plotting
 
-Fishing_Data<-read.csv("~/GFW_Data/2012_fishingeffortflag_1.0.csv")
-Fishing_Data<-Fishing_Data[which(Fishing_Data$geartype == 'drifting_longlines'),]
-Fishing_Data<-Fishing_Data[which(Fishing_Data$year == 2012),]
-Fishing_Data<-Fishing_Data[which(Fishing_Data$month == 6|Fishing_Data$month == 7),]
-myvars <- c("date", "year", "month", "lon_bin", "lat_bin", "flag", "geartype", "vessel_hours", "fishing_hours", "mmsi_present")
-Fishing_Data<-Fishing_Data[myvars]
-
-###START here if you want complete data...
-
-
-Fishing_Data<-read.csv("~/GFW_Data/2012-2016_fishingeffortflag_0.25.csv")
-myvars <- c("date", "year", "month", "lon_bin", "lat_bin", "flag", "geartype", "vessel_hours", "fishing_hours", "mmsi_present")
-Fishing_Data<-Fishing_Data[myvars]
-Unique_Year<-as.data.frame(unique(Fishing_Data$year))
-names(Unique_Year)<-c("Year")
-List_Year<-as.list(as.character(Unique_Year$Year))
-Complete_Clip<-NULL
-
+Map<-read_sf('C:/Users/timot/Documents/Albacore_OLE/shapefiles/Pacific_Landmasses.shp')
 IATTC<-read_sf("C:/Users/timot/Documents/Albacore_OLE/shapefiles/RFMO_Boundaries/iattc.shp")
 WCPFC<-read_sf('C:/Users/timot/Documents/Albacore_OLE/shapefiles/RFMO_Boundaries/WCPFC.shp')
 
-plot(WCPFC)
-plot(IATTC)
+Pacific_IATTC<-st_shift_longitude(IATTC)
+Pacific_WCPFC<-st_shift_longitude(WCPFC)
 
 Convention_Areas<-rbind(IATTC, WCPFC)
 Convention_Areas$area <- st_area(Convention_Areas)
 Combined_Convention_Bounds <- Convention_Areas %>% summarise(area = sum(area))
 
+Pacific_Convention_Areas<-rbind(Pacific_IATTC, Pacific_WCPFC)
+Pacific_Convention_Areas$area <- st_area(Pacific_Convention_Areas)
+Pacific_Combined_Convention_Bounds <- Pacific_Convention_Areas %>% summarise(area = sum(area))
+
 ggplot(Convention_Areas) + geom_sf()
 ggplot(Combined_Convention_Bounds) + geom_sf()
+ggplot(Pacific_Combined_Convention_Bounds) + geom_sf()
 
-for (i in 1:length(List_Year)){
-  Year = List_Year[i]
-  Single_Year <- Fishing_Data[which(Fishing_Data$year == Year),]
-  All_Spatial_Fishing_Data <- st_as_sf(Single_Year, coords = c('lon_bin', 'lat_bin'), crs = "+init=epsg:4326")
+### Read in data
+###Input is GFW global data aggregated at either 1.0 or 0.25 resolution
+
+Fishing_Data<-read.csv("C:/Users/timot/Documents/Albacore_OLE/GFW_Data/processed_data/global/2012-2016_fishingeffortflag_1.0.csv")
+myvars <- c("date", "year", "month", "lon_bin", "lat_bin", "flag", "geartype", "vessel_hours", "fishing_hours", "mmsi_present")
+Fishing_Data<-Fishing_Data[myvars]
+
+###Clip data to study area extent and re-center on the Pacific
+###METHOD 1
+All_Spatial_Fishing_Data <- st_as_sf(Fishing_Data, coords = c('lon_bin', 'lat_bin'), crs = "+init=epsg:4326")
+Pacific_Spatial_Fishing_Data<-st_intersection(All_Spatial_Fishing_Data, Combined_Convention_Bounds)
+Pacific_Spatial_Fishing_Data<-st_shift_longitude(Pacific_Spatial_Fishing_Data) 
+Lon_Lat_Coords<-as.data.frame(st_coordinates(Pacific_Spatial_Fishing_Data))
+names(Lon_Lat_Coords)<-c("Lon","Lat")
+Pacific_Fishing_df<-as.data.frame(Pacific_Spatial_Fishing_Data)
+Pacific_Fishing_df<-cbind(Pacific_Fishing_df, Lon_Lat_Coords)
+Pacific_Fishing_df<- Pacific_Fishing_df[c(-9,-10)]
+
+write.csv(Pacific_Fishing_df, "XXX.csv")
+
+###METHOD 2
+###Helps with memory limited computers
+
+Unique_Month<-as.data.frame(unique(Fishing_Data$month))
+names(Unique_Month)<-c("month")
+List_Month<-as.list(as.character(Unique_Month$month))
+Complete_Clip<-NULL
+
+
+for (i in 1:length(List_Month)){
+  month = List_Month[i]
+  Single_Month <- Fishing_Data[which(Fishing_Data$month == month),]
+  All_Spatial_Fishing_Data <- st_as_sf(Single_Month, coords = c('lon_bin', 'lat_bin'), crs = "+init=epsg:4326")
   Pacific_Spatial_Fishing_Data<-st_intersection(All_Spatial_Fishing_Data, Combined_Convention_Bounds)
   Pacific_Spatial_Fishing_Data<-st_shift_longitude(Pacific_Spatial_Fishing_Data) 
   Lon_Lat_Coords<-as.data.frame(st_coordinates(Pacific_Spatial_Fishing_Data))
@@ -56,16 +71,15 @@ for (i in 1:length(List_Year)){
   print(Sys.time())
 }
 
-
-write.csv(Complete_Clip, "Pacific_2012-2016_fishingeffortflag_1.0w.csv")
+write.csv(Complete_Clip, "X")
 
 ###Aggregate By Grid Cell
 
-effort_all <- Pacific_Fishing_df %>% 
+effort_all <- Second %>% 
   group_by(Lon,Lat) %>% 
   summarize(fishing_hours = sum(fishing_hours, na.rm = T),
             log_fishing_hours = log10(sum(fishing_hours, na.rm = T))) %>% 
-  ungroup() %>% 
+  ungroup() %>%
   mutate(log_fishing_hours = ifelse(log_fishing_hours <= 1, 1, log_fishing_hours),
          log_fishing_hours = ifelse(log_fishing_hours >= 5, 5, log_fishing_hours)) %>% 
   filter(fishing_hours >= 24)
@@ -73,12 +87,6 @@ effort_all <- Pacific_Fishing_df %>%
 
 effort_pal <- colorRampPalette(c('#0C276C', '#3B9088', '#EEFF00', '#ffffff'), 
                                interpolate = 'linear')
-
-Map<-read_sf('C:/Users/timot/Documents/Albacore_OLE/shapefiles/Pacific_Landmasses.shp')
-Pacific_IATTC<-st_shift_longitude(IATTC)
-Pacific_WCPFC<-st_shift_longitude(WCPFC)
-Pacific_WCPFC$area <- st_area(Pacific_WCPFC)
-Pacific_WCPFC <- Pacific_WCPFC %>% summarise(area = sum(area))
 
 p1 <- effort_all %>%
   ggplot() +
@@ -121,10 +129,33 @@ rgdal::writeOGR(obj=Pacific_Landmasses, layer="Pacific_Landmasses", dsn="tempdir
 
 Test<-read.csv("X.csv")
 
-First<-read.csv("Pacific_2012-2014_fishingeffortflag_0.25.csv")
-Second<-read.csv("Pacific_2015_fishingeffortflag_0.25.csv")
+First<-read.csv("Pacific_2016_fishingeffortflag_0.25_PartI.csv")
+Second<-read.csv("Pacific_2015_fishingeffortflag_0.25_PartII.csv")
 Third<-Second<-read.csv("Pacific_2016_fishingeffortflag_0.25.csv")
 
-Complete<-rbind(First,Seconf)
+Fishing_Data<-rbind(First,Second)
+
+### To aggregate monthly
+
+Second<-read.csv("C:/Users/timot/Documents/Albacore_OLE/GFW_Data/processed_data/pacific/Daily_Pacific_2012-2016_fishingeffortflag_1.0.csv")
+
+
+effort_all <- Second %>% 
+  group_by(Lon,Lat, month, year,flag, geartype) %>% 
+  summarize(fishing_hours = sum(fishing_hours, na.rm = T), vessel_hours = sum(vessel_hours, na.rm = T))
+
+write.csv(effort_all, "Monthly_Pacific_2012-2016_fishingeffortflag_1.0.csv")   
+
+### To subset Fishing_Data
+
+Fishing_Data<-Fishing_Data[which(Fishing_Data$geartype == 'drifting_longlines'),]
+Fishing_Data<-Fishing_Data[which(Fishing_Data$year == 2012),]
+Fishing_Data<-Fishing_Data[which(Fishing_Data$month == 6|Fishing_Data$month == 7),]
+  
+
+          
+            
+            
+
 
 

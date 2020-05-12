@@ -10,61 +10,105 @@ library('raster')
 library(maptools)
 library(scatterpie)
 
+rm(list=ls())
+
 # Load public longline data
 setwd("C:/Users/timot/Documents/Albacore_OLE")
 
 
 pllBoth <- read.csv("C:/Users/timot/Documents/Albacore_OLE/RFMO_Data/albLonglineIATTC_WCPFC_Flag.csv", head = TRUE, sep = ",") # Note WPC only has qrtr not month
 Map<-read_sf('shapefiles/Pacific_Landmasses.shp')
+IATTC<-read_sf("shapefiles/RFMO_Boundaries/iattc.shp")
+WCPFC<-read_sf('shapefiles/RFMO_Boundaries/WCPFC.shp')
+Pacific_IATTC<-st_shift_longitude(IATTC)
+Pacific_WCPFC<-st_shift_longitude(WCPFC)
+Pacific_WCPFC$area<-st_area(Pacific_WCPFC)
+Pacific_WCPFC <- Pacific_WCPFC %>% summarise(area = sum(area))
+
+pllBoth <- within(pllBoth, flag_id[flag_id == "CHN"] <- "CN")
+pllBoth <- within(pllBoth, flag_id[flag_id == "JPN"] <- "JP")
+pllBoth <- within(pllBoth, flag_id[flag_id == "TWN"] <- "TW")
+pllBoth <- within(pllBoth, flag_id[flag_id == "KOR"] <- "KR")
+pllBoth <- within(pllBoth, flag_id[flag_id == "USA"] <- "US")
+
+pllBoth <- pllBoth[which(pllBoth$flag_id == "CN"),] 
+
 
 pllBoth<-pllBoth[which(pllBoth$yy > 2011),] ### Use if you want to subset years
 pllBoth<-pllBoth[which(pllBoth$yy < 2017),]
 
+pllBoth<-pllBoth[which(pllBoth$qtr == 4),]
+
+pllBoth<-pllBoth[which(pllBoth$yy == 2016),]
+
+
 pllBoth <- subset(pllBoth, pllBoth$lat5 > 0) ### Use if you only want Northen Hemisphere
 pllBoth$lon360 <- ifelse(pllBoth$lon5 < 0, pllBoth$lon5 + 360, pllBoth$lon5)
 
-
-
-
-### Produce Raster of Albacore CPUE
-### Calculate cpue and log cpue
-pllBoth$albCPUE <- (pllBoth$alb_n / pllBoth$hooks)*1000
-#plot(pllBoth$albCPUE)#, ylim = c(0, 500))
-upper <- quantile(pllBoth$albCPUE, 0.999, na.rm = TRUE) # to remove strong upper outliers, likely errors
-pllBoth <- within(pllBoth, albCPUE[albCPUE > upper] <- NA)
-pllBoth$logALBcpue <- log(pllBoth$albCPUE + 1)
-
+### Reomve effort outliers
+upper <- quantile(pllBoth$hooks, 0.999, na.rm = TRUE) # to remove strong upper outliers, likely errors
+pllBoth <- within(pllBoth, hooks[hooks > upper] <- NA)
 
 # Aggregate in space and time, "count" is to enable exclusion of rarely fishes times/locations later (if desired)
-pllAgg <- aggregate(logALBcpue ~ lon360 + lat5 + qtr, pllBoth, 
-                          FUN = mean, na.rm = TRUE)
-pllAgg$count <- aggregate(logALBcpue ~ lon360 + lat5 + qtr, pllBoth, 
-                          FUN = length)[,ncol(pllAgg)]
-meanHooks <- aggregate(hooks      ~ lon360 + lat5 + qtr, pllBoth, 
-                          FUN = mean, na.rm = TRUE)
-pllAgg <- dplyr::full_join(pllAgg, meanHooks, by = c("lon360", "lat5", "qtr"))
 
-p1 <- ggplot() + 
-  geom_tile(data = pllAgg, aes(x = lon360, y = lat5, fill = logALBcpue)) +
+pllEffort <- aggregate(hooks  ~ lon360 + lat5, pllBoth, 
+                          FUN = sum, na.rm = TRUE)
+pllEffort$loghooks <- log(pllEffort$hooks)
+pllEffort$scaledhooks<- pllEffort$hooks/1000
+
+
+mycols <- colors()[c(473,562,71,610,655,653,621,34)] 
+mypalette <- colorRampPalette(mycols)(255)
+
+ggplot() + 
+  geom_tile(data = pllEffort, aes(x = lon360, y = lat5, fill = loghooks)) +
   geom_sf(data = Map,  fill = '#374a6d', color = '#0A1738', size = 0.1) +
   theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank(),
-        panel.background = element_blank(), axis.line = element_line(colour = "black")) + ylim(0,60) + xlim(110,300)
+        panel.background = element_blank(), axis.line = element_line(colour = "black")) + ylim(-60,60) + xlim(110,300) +
+        scale_fill_gradientn("log(hooks)", colours = mypalette, na.value = NA) + labs(title = ' CHN Longline Effort (2016-Fourth Quarter)')
+
+ggsave("RFMO_ALL.tiff", width=9, height=4, units="in", dpi=300)
+ggsave("RFMO_ALL.tiff", width=8, height=6, units="in", dpi=300)
+
+
 
 
 ##Produce Scattertile
 
 capture_all <- pllBoth %>% 
-  group_by(yy, month, qtr, flag_id, lat5, lon360) %>% 
+  group_by(lat5, lon360) %>% 
   summarize(alb_n = sum(alb_n, na.rm = T),
             bet_n= sum(bet_n, na.rm = T),
             swon_n  = sum(swo_n, na.rm = T),
             yft_n = sum(yft_n, na.rm = T))
 
 capture_all$idx <- as.integer(interaction(capture_all$lat5, capture_all$lon360))
-capture_all<-capture_all[c(5,6,7,8,9,10,110),]
+capture_all$total<-capture_all$alb_n + capture_all$bet_n + capture_all$swon_n + capture_all$yft_n
 
 
-ggplot() + geom_scatterpie(aes(x=lon360, y=lat5, group=idx), data=capture_all)  
+ggplot() + geom_scatterpie(aes(x=lon360, y=lat5, group=idx), data=capture_all,
+                           cols=c("alb_n", "bet_n", "swon_n", "yft_n"), pie_scale=.75) +  
+  geom_sf(data= Pacific_WCPFC, fill=NA, color="coral", lwd=.5) +
+  geom_sf(data= Pacific_IATTC, fill=NA, color="darkorchid3", lwd=.5) +
+  geom_sf(data = Map,  fill = '#374a6d', color = '#0A1738', size = 0.1) +
+  theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank(),
+        panel.background = element_blank(), axis.line = element_line(colour = "black")) + ylim(-2,60) + xlim(100,300) +
+        scale_fill_manual(values=c("royalblue1", "darkolivegreen", "maroon2", "yellow3")) + labs(title = 'Longline (2012-2016)')
+
+
+ggplot() + geom_scatterpie(aes(x=lon360, y=lat5, group=idx, r=(total/70000)), data=capture_all,
+                           cols=c("alb_n", "bet_n", "swon_n", "yft_n")) + coord_equal() +  
+  geom_sf(data= Pacific_WCPFC, fill=NA, color="coral", lwd=.5) +
+  geom_sf(data= Pacific_IATTC, fill=NA, color="darkorchid3", lwd=.5) +
+  geom_sf(data = Map,  fill = '#374a6d', color = '#0A1738', size = 0.1) +
+  theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank(),
+        panel.background = element_blank(), axis.line = element_line(colour = "black")) + ylim(-60,60) + xlim(100,300) +
+        scale_fill_manual(values=c("royalblue1", "darkolivegreen", "maroon2", "yellow3")) + labs(title = 'Longline-2013')
+
+
+
+ggsave("RFMO_ALL.tiff", width=8, height=6, units="in", dpi=300)
+
 
 
 
@@ -217,3 +261,24 @@ dev.off()
 jpeg(filename = "ALB Juvs US Surface Logb.jpg", quality =1000, res=300, width = 6, height = 4, units = 'in', restoreConsole = TRUE)
 p3
 dev.off()
+
+
+
+set.seed(123)
+long <- rnorm(50, sd=100)
+lat <- rnorm(50, sd=50)
+d <- data.frame(long=long, lat=lat)
+d <- with(d, d[abs(long) < 150 & abs(lat) < 70,])
+n <- nrow(d)
+d$region <- factor(1:n)
+d$A <- abs(rnorm(n, sd=1))
+d$B <- abs(rnorm(n, sd=2))
+d$C <- abs(rnorm(n, sd=3))
+d$D <- abs(rnorm(n, sd=4))
+d[1, 4:7] <- d[1, 4:7] * 3
+head(d)
+
+
+ggplot() + geom_scatterpie(aes(x=long, y=lat, group=region), data=d,
+                           cols=LETTERS[1:4]) + coord_equal()
+

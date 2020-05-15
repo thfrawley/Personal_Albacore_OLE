@@ -37,7 +37,7 @@ pllBoth <- pllBoth[which(pllBoth$flag_id == "CN"),]
 pllBoth<-pllBoth[which(pllBoth$yy > 2011),] ### Use if you want to subset years
 pllBoth<-pllBoth[which(pllBoth$yy < 2017),]
 
-pllBoth<-pllBoth[which(pllBoth$qtr == 4),]
+pllBoth<-pllBoth[which(pllBoth$qtr == 1),]
 
 pllBoth<-pllBoth[which(pllBoth$yy == 2016),]
 
@@ -62,10 +62,12 @@ mypalette <- colorRampPalette(mycols)(255)
 
 ggplot() + 
   geom_tile(data = pllEffort, aes(x = lon360, y = lat5, fill = loghooks)) +
+  geom_sf(data= Pacific_WCPFC, fill=NA, color="coral", lwd=.5) +
+  geom_sf(data= Pacific_IATTC, fill=NA, color="darkorchid3", lwd=.5) +
   geom_sf(data = Map,  fill = '#374a6d', color = '#0A1738', size = 0.1) +
   theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank(),
         panel.background = element_blank(), axis.line = element_line(colour = "black")) + ylim(-60,60) + xlim(110,300) +
-        scale_fill_gradientn("log(hooks)", colours = mypalette, na.value = NA) + labs(title = ' CHN Longline Effort (2016-Fourth Quarter)')
+        scale_fill_gradientn("log(hooks)", colours = mypalette, na.value = NA) + labs(title = ' Chinese Longline Effort (2016)')
 
 ggsave("RFMO_ALL.tiff", width=9, height=4, units="in", dpi=300)
 ggsave("RFMO_ALL.tiff", width=8, height=6, units="in", dpi=300)
@@ -92,22 +94,22 @@ ggplot() + geom_scatterpie(aes(x=lon360, y=lat5, group=idx), data=capture_all,
   geom_sf(data= Pacific_IATTC, fill=NA, color="darkorchid3", lwd=.5) +
   geom_sf(data = Map,  fill = '#374a6d', color = '#0A1738', size = 0.1) +
   theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank(),
-        panel.background = element_blank(), axis.line = element_line(colour = "black")) + ylim(-2,60) + xlim(100,300) +
+        panel.background = element_blank(), axis.line = element_line(colour = "black")) + ylim(-60,60) + xlim(100,300) +
         scale_fill_manual(values=c("royalblue1", "darkolivegreen", "maroon2", "yellow3")) + labs(title = 'Longline (2012-2016)')
 
 
-ggplot() + geom_scatterpie(aes(x=lon360, y=lat5, group=idx, r=(total/70000)), data=capture_all,
+ggplot() + geom_scatterpie(aes(x=lon360, y=lat5, group=idx, r=(total/50000)), data=capture_all,
                            cols=c("alb_n", "bet_n", "swon_n", "yft_n")) + coord_equal() +  
   geom_sf(data= Pacific_WCPFC, fill=NA, color="coral", lwd=.5) +
   geom_sf(data= Pacific_IATTC, fill=NA, color="darkorchid3", lwd=.5) +
   geom_sf(data = Map,  fill = '#374a6d', color = '#0A1738', size = 0.1) +
   theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank(),
-        panel.background = element_blank(), axis.line = element_line(colour = "black")) + ylim(-60,60) + xlim(100,300) +
-        scale_fill_manual(values=c("royalblue1", "darkolivegreen", "maroon2", "yellow3")) + labs(title = 'Longline-2013')
+        panel.background = element_blank(), axis.line = element_line(colour = "black")) + ylim(-5,60) + xlim(100,300) +
+        scale_fill_manual(values=c("royalblue1", "darkolivegreen", "maroon2", "yellow3")) + labs(title = 'Longline (2012-2016); First Quarter')
 
 
 
-ggsave("RFMO_ALL.tiff", width=8, height=6, units="in", dpi=300)
+ggsave("RFMO_ALL.tiff", width=9, height=4, units="in", dpi=300)
 
 
 

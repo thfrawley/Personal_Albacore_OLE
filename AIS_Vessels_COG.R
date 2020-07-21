@@ -241,19 +241,28 @@ library('tidyverse')
 
 Quarterly_Vessel_COG<-Quarterly_Vessel_COG[complete.cases(Quarterly_Vessel_COG),]
 Clustering_COG<-Quarterly_Vessel_COG
-rownames(Clustering_COG) <- Clustering_COG[,1]
-Clustering_COG <- Clustering_COG[,-1]
 
 Clustering_COG$Lon1<-as.character(Clustering_COG$Lon1)
 Clustering_COG$Lon1<-as.numeric(Clustering_COG$Lon1)
 Clustering_COG$Lat1<-as.character(Clustering_COG$Lat1)
 Clustering_COG$Lat1<-as.numeric(Clustering_COG$Lat1)
+Clustering_COG$Lon2<-as.character(Clustering_COG$Lon2)
 Clustering_COG$Lon2<-as.numeric(Clustering_COG$Lon2)
+Clustering_COG$Lat2<-as.character(Clustering_COG$Lat2)
 Clustering_COG$Lat2<-as.numeric(Clustering_COG$Lat2)
+Clustering_COG$Lon3<-as.character(Clustering_COG$Lon3)
 Clustering_COG$Lon3<-as.numeric(Clustering_COG$Lon3)
+Clustering_COG$Lat3<-as.character(Clustering_COG$Lat3)
 Clustering_COG$Lat3<-as.numeric(Clustering_COG$Lat3)
+Clustering_COG$Lon4<-as.character(Clustering_COG$Lon4)
 Clustering_COG$Lon4<-as.numeric(Clustering_COG$Lon4)
+Clustering_COG$Lat4<-as.character(Clustering_COG$Lat4)
 Clustering_COG$Lat4<-as.numeric(Clustering_COG$Lat4)
+
+Clustering_COG_Map<-Clustering_COG
+
+rownames(Clustering_COG) <- Clustering_COG[,1]
+Clustering_COG <- Clustering_COG[,-1]
 
 Boat_data <- Clustering_COG %>% scale() 
 
@@ -275,23 +284,59 @@ Boat_Groups<-merge(Boat_Groups, registry, by="mmsi", all.x=TRUE)
 
 Single_Group<-Boat_Groups[which(Boat_Groups$memb==4),]
 Single_Group<-Single_Group[c(1,10,11,13,14,15)] 
-Single_Group<-merge(Single_Group, Clustering_COG, by="mmsi", all.x=TRUE)
+Single_Group<-merge(Single_Group, Clustering_COG_Map, by="mmsi", all.x=TRUE)
 
 Test<-Single_Group %>% 
-  group_by(flag.x) %>
-  summarise(no = length(flag.x))
+  group_by(flag) %>%
+  summarise(no = length(flag))
+
 Total<-sum(Test$no)
 Test$percentage<-Test$no/Total
 Test <- Test[order(-Test$no),]
 
-p1 <- Single_Group %>%
-  ggplot() +
-  geom_point(aes(x = Lon1, y = Lat1)) +
-  geom_sf(data = Map, 
-          fill = '#374a6d', 
-          color = '#0A1738',
-          size = 0.1)
-p1
+Test<-Single_Group %>% 
+  group_by(memb) %>%
+  summarise(length = mean(length, na.rm = T))
+
+Test<-Single_Group %>% 
+  group_by(memb) %>%
+  summarise(length = sd(length, na.rm = T))
+
+Test<-Single_Group %>% 
+  group_by(memb) %>%
+  summarise(tonnage = mean(tonnage, na.rm = T))
+
+Test<-Single_Group %>% 
+  group_by(memb) %>%
+  summarise(tonnage = sd(tonnage, na.rm = T))
+
+library(viridis)
+library(MASS)
+
+ggplot() + stat_density_2d(data = Single_Group, aes(Lon4, Lat4, fill = stat(scale(log1p(level)))), geom = "polygon", n = 200) +
+  scale_fill_gradient(low = "yellow1", high = "red", guide = guide_legend(label.position = "bottom", title = "Level")) +
+  geom_sf(data = Map, fill = '#999999', color = '#0A1738', size = 0.1) + theme_bw()  
+
+
+ggplot() + geom_point(data = Single_Group, aes(Lon3, Lat3)) + geom_sf(data = Map, fill = '#999999', color = '#0A1738', size = 0.1) + theme_bw()  
+
+
+
+
+
+
+
+
+
+
+  geom_point(aes(x = Lon2, y = Lat2)) + geom_density_2d()
+  
+  theme_bw() 
+
+geom_point(aes(x = Lon2, y = Lat2, color=density2)) + scale_color_viridis() + 
+
+
+p1 
 
 str(Single_Group)
 
@@ -316,9 +361,27 @@ Test<-registry %>%
 
 
 
+### Density Function
 
+get_density <- function(x, y, ...) {
+  dens <- MASS::kde2d(x, y, ...)
+  ix <- findInterval(x, dens$x)
+  iy <- findInterval(y, dens$y)
+  ii <- cbind(ix, iy)
+  return(dens$z[ii])
+}
 
-
+set.seed(1)
+dat <- data.frame(
+  x = c(
+    rnorm(1e4, mean = 0, sd = 0.1),
+    rnorm(1e3, mean = 0, sd = 0.1)
+  ),
+  y = c(
+    rnorm(1e4, mean = 0, sd = 0.1),
+    rnorm(1e3, mean = 0.1, sd = 0.2)
+  )
+)
 
 
 

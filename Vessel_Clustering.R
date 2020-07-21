@@ -1,19 +1,28 @@
 setwd("C:/Users/timot/Documents/Albacore_OLE/RFMO_Data")
+rm(list=ls())
+
+
+library(ggplot2)
+library("tidyverse")
 
 Registry<-read.csv("Partial_Registry_Clean.csv", na.strings=c("", "NA"))
 Registry$ID <- seq.int(nrow(Registry))
 Registry$Date<-as.POSIXct(Registry$Version_Date, format="%m/%d/%Y")
 Registry$Year <- as.numeric(format(Registry$Date,'%Y'))
+
+###Set Timeframe
 Registry<- Registry[!(Registry$Year==2008),]
 Registry<- Registry[!(Registry$Year==2020),]
+
+Registry<- Registry[which(Registry$Year==2016),]
+                  
 
 myvars <- c("ID", "Year", "WCPFC_Vessel_ID", "Version_Number", "Version_Date", "CCM_Flag", "Vessel_Type", "Master_CCM" ,
             "Vessel_Tonnage", "Vessel_Auth_Type", "Vessel_Auth_Species_Cleaned", "Vessel_Previous_Flags", "Vessel_Length", "Vessel_Length_Units",
             "Owner_Name", "Owner_Address", "Port_RegisteredIn", "Chartering_CCM")
 Registry <- Registry[myvars]
-
-
-
+Registry<- Registry[!(Registry$Vessel_Type=='Seiner'),]
+Registry<- Registry[!(Registry$Vessel_Type=='Trawler'),]
 
 Registry <- Registry %>% mutate(Length_M = case_when(Vessel_Length_Units == "Meters" ~ Vessel_Length,
                                                      Vessel_Length_Units == "Feet" ~ Vessel_Length * 0.3048,
@@ -32,6 +41,18 @@ Registry<-merge(Registry, Dominant_Length, by="WCPFC_Vessel_ID", all.x=TRUE)
 Registry$Vessel_Length<-Registry$Length_M.y
 Registry <- Registry[ , -which(names(Registry) %in% c("Vessel_Length_Units", "Length_M.x", "Length_M.y"))]
 
+Dominant_Flag= Registry %>% group_by(WCPFC_Vessel_ID) %>% summarize(CCM_Flag=names(which.max(table(CCM_Flag))))
+Registry<-merge(Registry, Dominant_Flag, by="WCPFC_Vessel_ID", all.x=TRUE)
+Registry$CCM_Flag.x<-Registry$CCM_Flag.y
+Registry <- Registry[ , -which(names(Registry) %in% c("CCM_Flag.y"))]
+names(Registry) <- gsub("CCM_Flag.x", "CCM_Flag", names(Registry))
+
+Dominant_Port= Registry %>% group_by(WCPFC_Vessel_ID) %>% summarize(Port_RegisteredIn =names(which.max(table(Port_RegisteredIn))))
+Registry<-merge(Registry, Dominant_Port, by="WCPFC_Vessel_ID", all.x=TRUE)
+Registry$Port_RegisteredIn.x<-Registry$Port_RegisteredIn.y
+Registry <- Registry[ , -which(names(Registry) %in% c("Port_RegisteredIn.y"))]
+names(Registry) <- gsub("Port_RegisteredIn.x", "Port_RegisteredIn", names(Registry))
+
 
 Vessels<- unique(Registry[,c('WCPFC_Vessel_ID', 'CCM_Flag', 'Port_RegisteredIn', 'Vessel_Length', "Vessel_Tonnage.x")])
 Vessels$Vessel_Length<-as.numeric(Vessels$Vessel_Length)
@@ -43,16 +64,49 @@ Port_Coords<-read.csv("Ports&Coords_Manual.csv")
 Vessels_Ports<-merge(Vessels, Port_Coords, by=c("Port_RegisteredIn", "CCM_Flag"), all.x=TRUE)
 Vessels_Ports <- Vessels_Ports[ , -which(names(Vessels_Ports) %in% c("WCPFC_Vessel_ID.y", "city_ascii", "iso2", "iso3", "admin_name", "capital", "population", "id"))]
 Vessels_Ports <- Vessels_Ports[complete.cases(Vessels_Ports),]
+Vessels_Ports$lng <- ifelse(Vessels_Ports$lng < 0, Vessels_Ports$lng + 360, Vessels_Ports$lng)
+Vessels_Ports <- Vessels_Ports[order(Vessels_Ports$lng),]
+Vessels_Ports <-Vessels_Ports[!(Vessels_Ports$lng > 300),]
+
+Vessels_Ports <-Vessels_Ports[!(Vessels_Ports$WCPFC_Vessel_ID.x == "11439"),]
+Vessels_Ports <-Vessels_Ports[!(Vessels_Ports$WCPFC_Vessel_ID.x == "9861"),]
+
+
+Ports <-aggregate(WCPFC_Vessel_ID.x~lat+lng+Port_RegisteredIn, FUN=length, data=Vessels_Ports)
+Map<-read_sf('C:/Users/timot/Documents/Albacore_OLE/shapefiles/Pacific_Landmasses.shp')
+ggplot() + geom_sf(data = Map, fill = '#999999', color = '#0A1738', size = 0.1) +
+  geom_point(data=Ports, aes(x=lng, y=lat, size=WCPFC_Vessel_ID.x)) + theme_bw()
+
+
+rownames(Vessels_Ports) <- Vessels_Ports[,3] ### START HERE; can't have duplicate Vessel ID'S; Problem is with duplicate city names
 
 Vessels_Ports_Cluster<-Vessels_Ports[c(4,5,7,8)]
 Vessels_Ports_Cluster <- Vessels_Ports_Cluster %>% scale() 
-fviz_nbclust(Vessels_Ports_Cluster, kmeans, method ="gap_stat") ### This process takes forever, says 6 is the optimal number
 
+
+library("NbClust")
+library("cluster")
+library("factoextra")
+library("magrittr")
+library('tidyverse')
+
+res.nbclust <- Vessels_Ports_Cluster %>% NbClust(distance = "euclidean", min.nc = 2, max.nc = 10, method = "complete", index ="all") ### This process also takes forever
+fviz_nbclust(res.nbclust, ggtheme = theme_minimal())
+fviz_nbclust(Vessels_Ports_Cluster, kmeans, method ="gap_stat") ### This process takes forever, says 6 is the optimal number
 km.res <- kmeans(Vessels_Ports_Cluster, 6, nstart = 25)
 fviz_cluster(km.res, data = Vessels_Ports_Cluster, ellipse.type = "convex", palette = "jco", ggtheme = theme_minimal())
+fviz_cluster(km.res, data = Vessels_Ports_Cluster, ellipse.type = "convex", geom=c('point'), palette = "jco", ggtheme = theme_minimal())
+
 
 res.hc <- Vessels_Ports_Cluster %>% dist(method = "euclidean") %>% hclust(method = "ward.D2")
-fviz_dend(res.hc, cex = 0.5, k = 6, color_labels_by_k = TRUE)
+memb <- cutree(res.hc, k = 6)
+Vessels_Ports_Cluster<-Ports_Cluseter<-as.data.frame(Vessels_Ports_Cluster)
+Vessels_Ports_Cluster$memb<-memb
+
+
+fviz_dend(res.hc, cex = 0.5, k = 6, color_labels_by_k = TRUE) ### Long process to compute dendrogram figure
+
+
 
 
 
@@ -116,12 +170,6 @@ fviz_dend(res.hc, k = 4, # Cut in four groups
 )
 
 
-?fviz_dend
-
-
-"#2E9FDF", "#00AFBB", "#E7B800", "#FC4E07"),
-
-
 install.packages("NbClust")
 library(NbClust)
 
@@ -130,7 +178,7 @@ set.seed(123)
 res.nbclust <- USArrests %>%
   scale() %>%
   NbClust(distance = "euclidean",
-          min.nc = 2, max.nc = 10, 
+          min.nc = 2, max.nc = 20, 
           method = "complete", index ="all")
 
 library(factoextra)

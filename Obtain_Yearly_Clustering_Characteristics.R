@@ -23,17 +23,59 @@ library(MASS)
 rm(list=ls())
 setwd("C:/Users/timot/Documents/Albacore_OLE")
 
-fishing_data <-read.csv("GFW_Data/processed_data/pacific/Monthly_Pacific_2016_fishingeffortmmsi_0.25.csv")   
+Map<-read_sf('shapefiles/Pacific_Landmasses.shp') ### Study Map
 
-### To look at and plot a single vessel
+EEZ<-read_sf('shapefiles/World_EEZ_v11/EEZ_v11.shp') ### Read in EEZ Shapefiles and Subset to get Pacific EEZs
+EEZ_Simp<-st_simplify(EEZ, dTolerance = .25)
+EEZ_Simp<-EEZ_Simp[c(2,6,7,8,23,32)]
+EEZ_Simp<-st_shift_longitude(EEZ_Simp)
+a_poly = st_polygon(list(rbind(c(100, -90), c(100, 90), c(300, 90), c(300, -90), c(100, -90))))
+a = st_sfc(a_poly, crs = "+init=epsg:4326")
+Pacific_EEZ= EEZ_Simp %>% filter(st_within(EEZ_Simp, a, sparse = FALSE))
+Pacific_EEZ[is.na(Pacific_EEZ)]= "NONE"
 
-Top_Vessels <- fishing_data %>% 
+
+Pacific_EEZ$area<-st_area(Pacific_EEZ) ## Get aggregate shapefiles for all EEZ areas and all HighSeas Areas
+AllEEZ<- Pacific_EEZ %>% summarise(area = sum(area))
+Pacific<-read_sf('shapefiles/Pacific_Ocean.shp')
+Pacific_Simp<-st_simplify(Pacific, dTolerance = .25)
+HighSeas <-st_difference(Pacific_Simp, AllEEZ)
+
+
+
+###Read in data, take the relevant subset, and add flag info to mmsi data
+fishing_data<-read.csv("GFW_Data/processed_data/pacific/Monthly_Pacific_2016_fishingeffortmmsi_0.25.csv")
+
+registry<-read.csv("GFW_Data/raw_data/fishing_vessels/fishing_vessels.csv")
+registry<-registry[which(registry$geartype == 'drifting_longlines'),]
+registry<-registry[which(registry$active_2016 == 'true'),]
+flag_registry<-registry[c(1,2)]
+
+Vessels<-as.data.frame(unique(registry$mmsi))
+names(Vessels)<-c("mmsi")
+fishing_data<-setDT(fishing_data)[mmsi %chin% Vessels$mmsi]
+fishing_data_flag<-merge(fishing_data, flag_registry, by="mmsi", all.x=TRUE)
+
+#### If you want to take a subset of vessels
+Top_Vessels <- fishing_data_flag %>% 
   group_by(mmsi) %>% 
   summarize(fishing_hours = sum(fishing_hours, na.rm = T))
-  
-Top_Vessels <- Top_Vessels[order(-Top_Vessels$fishing_hours),]
 
-Single_Vessel<-fishing_data[which(fishing_data$mmsi==	205366010),]	
+Top_Vessels <- Top_Vessels[order(-Top_Vessels$fishing_hours),]
+Some_Top_Vessels<-Top_Vessels[c(800:1000),]
+Vessels<-as.data.frame(unique(Some_Top_Vessels$mmsi))
+names(Vessels)<-c("mmsi")
+fishing_data_flag<-setDT(fishing_data_flag)[mmsi %chin% Vessels$mmsi]
+
+####If you want to look at a single fishing vessel
+
+Single_Vessel<-fishing_data_flag[which(fishing_data_flag$mmsi==	431003491),]
+Dominant_Flag= Single_Vessel %>% group_by(mmsi) %>% summarize(flag=names(which.max(table(flag))))
+Single_Flag<-as.character(Dominant_Flag[1,2])
+Foreign_EEZ<-Pacific_EEZ[(!Pacific_EEZ$ISO_TER1 == Single_Flag),] 
+Foreign_EEZ<-Foreign_EEZ[which(!Foreign_EEZ$ISO_SOV1== Single_Flag),] 
+Foreign_EEZ$area<-st_area(Foreign_EEZ)
+All_Foreign_EEZ<- Foreign_EEZ %>% summarise(area = sum(area))
 
 Single_effort <- Single_Vessel %>% 
   group_by(Lon,Lat) %>% 
@@ -43,16 +85,19 @@ Single_effort <- Single_Vessel %>%
   mutate(log_fishing_hours = ifelse(log_fishing_hours <= 1, 1, log_fishing_hours),
          log_fishing_hours = ifelse(log_fishing_hours >= 10, 10, log_fishing_hours))
 
-effort_pal <- colorRampPalette(c('#0C276C', '#3B9088', '#EEFF00', '#ffffff'), 
+effort_pal <- colorRampPalette(c('red', '#3B9088', '#EEFF00', 'red'), 
                                interpolate = 'linear')
 
-p1 <- Single_effort %>%
-  ggplot() +
-  geom_raster(aes(x = Lon, y = Lat, fill = fishing_hours)) +
+p1 <- Single_effort %>% ggplot() +
   geom_sf(data = Map, 
           fill = '#374a6d', 
           color = '#0A1738',
           size = 0.1) + 
+  geom_sf(data = Pacific_EEZ, 
+          fill = '#374a6d', 
+          color = '#0A1738',
+          size = 0.1) +
+  geom_raster(aes(x = Lon, y = Lat, fill = fishing_hours)) +
   scale_fill_gradientn(
     "Fishing Hours",
     na.value = NA,
@@ -74,41 +119,23 @@ Line_Coord_B<-Single_COG[which(Single_COG$group=="B"),]
 pointDistance(c(Line_Coord_B[1,1], Line_Coord_B[1,2]), c(Line_Coord_B[2,1],  Line_Coord_B[2,2]), lonlat=TRUE)
 pointDistance(c(Line_Coord_A[1,1], Line_Coord_A[1,2]), c(Line_Coord_A[2,1],  Line_Coord_A[2,2]), lonlat=TRUE)
 
-p1 <- Single_effort %>%
-  ggplot() +
-  geom_raster(aes(x = Lon, y = Lat, fill = fishing_hours)) +
-  geom_point(data=Point_Coord, aes(x=lon, y=lat, colour='red')) +
-  geom_line(data=Line_Coord_A, aes(x=lon, y=lat, colour='red')) +
-  geom_line(data=Line_Coord_B, aes(x=lon, y=lat, colour='red')) +
-  geom_sf(data = Map, 
-          fill = '#374a6d', 
-          color = '#0A1738',
-          size = 0.1) + 
-  scale_fill_gradientn(
-    "Fishing Hours",
-    na.value = NA,
-    colours = effort_pal(5)) + # Linear Green
-  labs(fill  = 'Fishing hours',
-       title = 'Global fishing effort in 2016') +
-  guides(fill = guide_colourbar(barwidth = 10))
 
-p1
+Single_effort <- st_as_sf(Single_effort, coords = c('Lon', 'Lat'), crs = "+init=epsg:4326")
+Single_HighSeas_effort <-st_intersection(Single_effort, HighSeas)
+plot(Single_HighSeas_effort)
+Single_Foreign_EEZ_effort<-st_intersection(Single_effort, All_Foreign_EEZ)
+Total_Hours<-sum(Single_effort$fishing_hours)
+HighSeas_Percentage<-sum(Single_HighSeas_effort$fishing_hours)/Total_Hours
+Foreign_EEZ_Percentage<-sum(Single_Foreign_EEZ_effort$fishing_hours)/Total_Hours
+plot(Single_HighSeas_effort)
 
-#### Get One COG
 
-rm(list=ls())
 
-fishing_data <-read.csv("GFW_Data/processed_data/pacific/Monthly_Pacific_2016_fishingeffortmmsi_0.25.csv")
+#### Get Clustering Characteristics for all the vessels
 
-registry<-read.csv("GFW_Data/raw_data/fishing_vessels/fishing_vessels.csv")
-registry<-registry[which(registry$geartype == 'drifting_longlines'),]
-registry<-registry[which(registry$active_2016 == 'true'),]
 
-Vessels<-as.data.frame(unique(registry$mmsi))
-names(Vessels)<-c("mmsi")
-fishing_data<-setDT(fishing_data)[mmsi %chin% Vessels$mmsi]
 
-Selected_Vessels<-fishing_data
+Selected_Vessels<-fishing_data_flag
                       
 
 load.file <- function(filename) {
@@ -121,28 +148,38 @@ load.file <- function(filename) {
   Line_Coord_B<-Single_COG[which(Single_COG$group=="B"),]	
   Distance_A<-pointDistance(c(Line_Coord_A[1,1], Line_Coord_A[1,2]), c(Line_Coord_A[2,1],  Line_Coord_A[2,2]), lonlat=TRUE)
   Distance_B<-pointDistance(c(Line_Coord_B[1,1], Line_Coord_B[1,2]), c(Line_Coord_B[2,1],  Line_Coord_B[2,2]), lonlat=TRUE)
-  Value<-as.data.frame(c(vessel_name, Point_Coord$lon, Point_Coord$lat, Distance_A, Distance_B))
+  Dominant_Flag= filename %>% group_by(mmsi) %>% summarize(flag=names(which.max(table(flag))))
+  Single_Flag<-as.character(Dominant_Flag[1,2])
+  Foreign_EEZ<-Pacific_EEZ[(!Pacific_EEZ$ISO_TER1 == Single_Flag),] 
+  Foreign_EEZ<-Foreign_EEZ[which(!Foreign_EEZ$ISO_SOV1== Single_Flag),] 
+  Foreign_EEZ$area<-st_area(Foreign_EEZ)
+  All_Foreign_EEZ<- Foreign_EEZ %>% summarise(area = sum(area))
+  Single_effort <- st_as_sf(filename, coords = c('Lon', 'Lat'), crs = "+init=epsg:4326")
+  Single_HighSeas_effort <-st_intersection(Single_effort, HighSeas)
+  Single_Foreign_EEZ_effort<-st_intersection(Single_effort, All_Foreign_EEZ)
+  Total_Hours<-sum(Single_effort$fishing_hours)
+  HighSeas_Percentage<-sum(Single_HighSeas_effort$fishing_hours)/Total_Hours
+  Foreign_EEZ_Percentage<-sum(Single_Foreign_EEZ_effort$fishing_hours)/Total_Hours
+  print(Sys.time())
+  Value<-as.data.frame(c(vessel_name, Point_Coord$lon, Point_Coord$lat, Distance_A, Distance_B, HighSeas_Percentage, Foreign_EEZ_Percentage))
 }
-
 
 Vessels.split<-split(Selected_Vessels, Selected_Vessels$mmsi)
 
 data <- lapply(Vessels.split, load.file) ###Make sure COG function is loaded
-output <- matrix(unlist(data), ncol = 5, byrow = TRUE)
+output <- matrix(unlist(data), ncol = 7, byrow = TRUE)
 COG<-as.data.frame(output)
-names(COG)<-c("mmsi", "Lon", "Lat", "Distance_A", "Distance_B")
+names(COG)<-c("mmsi", "Lon", "Lat", "Distance_A", "Distance_B", "HighSeas_Percentage", "Foreign_EEZ_Percentage")
 COG$Distance_A <- sub(NaN, 0, COG$Distance_A) ### Replace NaN with 0
 COG$Distance_B <- sub(NaN, 0, COG$Distance_B)
 
 Cluster_df<-merge(COG,registry, by="mmsi", all.x=TRUE)
-myvars <- c("mmsi", "Lon", "Lat", "Distance_A", "Distance_B", "length")
+myvars <- c("mmsi", "Lon", "Lat", "Distance_A", "Distance_B", "length", "HighSeas_Percentage", "Foreign_EEZ_Percentage")
 Cluster_df<-Cluster_df[myvars]
 Unscaled_Characteristics<-Cluster_df
 rownames(Cluster_df) <- Cluster_df[,1]
 Cluster_df <- Cluster_df[,-1]
 Cluster_df<-Cluster_df[complete.cases(Cluster_df),]
-
-
 
 Cluster_df$Lon<-as.character(Cluster_df$Lon)
 Cluster_df$Lat<-as.character(Cluster_df$Lat)
@@ -150,6 +187,15 @@ Cluster_df$Lon<-as.numeric(Cluster_df$Lon)
 Cluster_df$Lat<-as.numeric(Cluster_df$Lat)
 Cluster_df$Distance_A<-as.numeric(Cluster_df$Distance_A)
 Cluster_df$Distance_B<-as.numeric(Cluster_df$Distance_B)
+Cluster_df$HighSeas_Percentage<-as.character(Cluster_df$HighSeas_Percentage)
+Cluster_df$HighSeas_Percentage<-as.numeric(Cluster_df$HighSeas_Percentag)
+Cluster_df$Foreign_EEZ_Percentage<-as.character(Cluster_df$Foreign_EEZ_Percentage)
+Cluster_df$Foreign_EEZ_Percentage<-as.numeric(Cluster_df$Foreign_EEZ_Percentag)
+
+###If for some reason you wanted home EEZ
+Test<-Cluster_df
+Test$Home_EEZ<- (1 -(Test$HighSeas_Percentage+Test$Foreign_EEZ_Percentage))
+
 str(Cluster_df)
 
 
@@ -169,7 +215,7 @@ Boat_Groups<-as.data.frame(Boat_data)
 Boat_Groups$memb<-memb
 Boat_Groups <- tibble::rownames_to_column(Boat_Groups, "mmsi")
 Boat_Specs_Scaled<-Boat_Groups
-Boat_Groups<-Boat_Groups[c(1,7)]
+Boat_Groups<-Boat_Groups[c(1,9)] ### Change if you add more variables
 
 
 ##### Check out the results
@@ -180,25 +226,30 @@ Vessel_Specs_Scaled<-Boat_Specs_Scaled
 Vessel_Specs_Scaled<-Vessel_Specs_Scaled[(-1)]
 
 
-
 Group_Stats<-Vessel_Specs_Scaled %>% group_by(memb) %>% summarise_each(funs(mean, sd))
-Group_Lon<-Group_Stats[c(1,2,7)]
+Group_Lon<-Group_Stats[c(1,2,9)]
 Group_Lon$Var<-"Longitude_COG"
 names(Group_Lon)<- c("memb", "mean", "sd", "Variable")
-Group_Lat<-Group_Stats[c(1,3,8)]
+Group_Lat<-Group_Stats[c(1,3,10)]
 Group_Lat$Var<-"Latitude_COG"
 names(Group_Lat)<- c("memb", "mean", "sd", "Variable")
-Group_IA<-Group_Stats[c(1,4,9)]
+Group_IA<-Group_Stats[c(1,4,11)]
 Group_IA$Var<-"Inertia_A"
 names(Group_IA)<- c("memb", "mean", "sd", "Variable")
-Group_IB<-Group_Stats[c(1,5,10)]
+Group_IB<-Group_Stats[c(1,5,12)]
 Group_IB$Var<-"Inertia_B"
 names(Group_IB)<- c("memb", "mean", "sd", "Variable")
-Group_Length<-Group_Stats[c(1,6,11)]
+Group_Length<-Group_Stats[c(1,6,13)]
 Group_Length$Var<-"Length"
 names(Group_Length)<- c("memb", "mean", "sd", "Variable")
+Group_HighSeas<-Group_Stats[c(1,7,14)]
+Group_HighSeas$Var<-"High_Seas %"
+names(Group_HighSeas)<- c("memb", "mean", "sd", "Variable")
+Group_ForeignEEZ<-Group_Stats[c(1,8,15)]
+Group_ForeignEEZ$Var<-"Foreign_EEZ %"
+names(Group_ForeignEEZ)<- c("memb", "mean", "sd", "Variable")
 
-Group_Stats_Wide<-rbind(Group_Lon, Group_Lat, Group_IA, Group_IB, Group_Length)
+Group_Stats_Wide<-rbind(Group_Lon, Group_Lat, Group_IA, Group_IB, Group_Length, Group_HighSeas, Group_ForeignEEZ)
 
 ggplot(Group_Stats_Wide, aes(memb, y=mean, fill=Variable)) + geom_bar(stat='identity', position=position_dodge(.9), color="black") + 
   geom_errorbar(aes(ymin = mean-sd, ymax = mean+sd, group=Variable), width = 0.4, position=position_dodge(.9)) + 
@@ -223,7 +274,6 @@ Member_effort <- Member_data %>%
   ungroup()  %>% 
   mutate(log_fishing_hours = ifelse(log_fishing_hours <= 1, 1, log_fishing_hours),
        log_fishing_hours = ifelse(log_fishing_hours >= 10, 10, log_fishing_hours))
-
 
 
 ### Plot it up
@@ -493,3 +543,5 @@ summarySE <- function(data=NULL, measurevar, groupvars=NULL, na.rm=FALSE,
   return(datac)
 }
 
+
+###Code Scraps
